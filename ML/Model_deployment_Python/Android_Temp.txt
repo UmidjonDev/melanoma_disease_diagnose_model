@@ -1,0 +1,105 @@
+package com.umidjon.melapp
+
+import android.app.Activity
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import androidx.appcompat.app.AppCompatActivity
+import android.graphics.Bitmap
+import android.os.Bundle
+import android.widget.Button
+import android.content.Intent
+import android.provider.MediaStore
+import android.widget.ImageView
+import kotlinx.coroutines.launch
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import android.widget.TextView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.ByteArrayOutputStream
+import java.lang.Exception
+import java.util.Dictionary
+
+
+class Melanoma_diagnosis : AppCompatActivity() {
+
+    private lateinit var camera:Button
+    private lateinit var Image_captured : ImageView
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_melanoma_diagnosis)
+
+        camera = findViewById(R.id.button2)
+        Image_captured = findViewById(R.id.imageView6)
+
+        camera.setOnClickListener{
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            startActivityForResult(intent, 123)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == 123 && resultCode == Activity.RESULT_OK){
+            val photo = data?.extras?.get("data") as Bitmap
+
+            Image_captured.setImageBitmap(photo)
+
+            GlobalScope.launch(Dispatchers.IO){
+                val apiResponse = performNetworkRequest(photo = photo)
+                val resultDict = parseApiResponse(apiResponse)
+                updateViews(resultDict)
+            }
+        }
+    }
+
+    //Kotlin coroutines instead of Asynchronous background performance like happened in Java
+    private suspend fun performNetworkRequest(photo: Bitmap): String? {
+        try {
+            val url = "https://229d-213-230-112-38.ngrok-free.app"
+
+            val imageBytes = ByteArrayOutputStream().use {
+                photo.compress(Bitmap.CompressFormat.PNG, 100, it)
+                it.toByteArray()
+            }
+
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("image", "image.png", imageBytes.toRequestBody("image/png".toMediaType()))
+                .build()
+
+            val client = OkHttpClient()
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .build()
+
+            val response = client.newCall(request).execute()
+            val result = response.body?.string()
+            println(result)
+            return result
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
+    private fun parseApiResponse(apiResponse : String?) : Map<String, Double>{
+        val jsonMap = apiResponse?.removePrefix("{")?.removeSuffix("}")?.split(":")
+        val melanomaProbability = jsonMap?.get(1)?.trim()?.toDoubleOrNull() ?: 0.0
+        return mapOf("Melanoma"  to melanomaProbability)
+    }
+
+    private fun updateViews(resultDict : Map<String, Double>){
+        val resultTextView_class = findViewById<TextView>(R.id.textView)
+        val resultTextView_prob = findViewById<TextView>(R.id.textView3)
+
+        resultTextView_class.text = resultDict.keys.first()
+        //resultTextView_prob.text = "${probabilities.joinToString(", ")}"
+        resultTextView_prob.text = resultDict.values.first().toString()
+    }
+}
